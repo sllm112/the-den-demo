@@ -78,7 +78,9 @@ export default function Shop() {
           </Tabs.List>
 
           {categories.map((c) => {
-            const list = products.filter((p) => c.id === 'all' || p.category === c.id);
+            const list = products.filter(
+              (p) => p.available !== false && (c.id === 'all' || p.category === c.id),
+            );
             return (
               <Tabs.Panel key={c.id} value={c.id} className="products">
                 {list.length === 0 ? (

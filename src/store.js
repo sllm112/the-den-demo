@@ -21,7 +21,11 @@ const base = {
   referral: defaults.referral,
   reviews: defaults.reviews,
 };
-const emptyLog = { leads: [], codes: [], orders: [], subs: [], clicks: {}, visits: 0 };
+// days: عدد الزيارات لكل يوم بصيغة YYYY-MM-DD. demo: السجل مملوء ببيانات تجريبية.
+const emptyLog = { leads: [], codes: [], orders: [], subs: [], clicks: {}, visits: 0, days: {}, demo: false };
+
+export const dayKey = (date) =>
+  new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
 function read(key, fallback) {
   try {
@@ -125,10 +129,105 @@ export function trackVisit() {
   } catch {
     return;
   }
-  setLog({ ...log, visits: log.visits + 1 });
+  const today = dayKey(new Date());
+  setLog({
+    ...log,
+    visits: log.visits + 1,
+    days: { ...log.days, [today]: (log.days[today] || 0) + 1 },
+  });
 }
 export function clearLog() {
   setLog({ ...emptyLog });
+}
+
+// يملأ السجل بنشاط تجريبي لآخر 28 يوماً حتى تظهر اللوحة كما ستكون بعد التشغيل.
+// الأرقام مولّدة وليست بيانات حقيقية، واللوحة تعرض تنبيهاً بذلك.
+export function seedDemo() {
+  const { plans, products } = site;
+  const DAY = 86400000;
+  const now = Date.now();
+  // لحظة داخل الأسبوع (week) موزعة بالتساوي على عدد العناصر.
+  const moment = (week, index, count) =>
+    new Date(now - (week * 7 + ((index + 0.5) * 7) / count) * DAY);
+
+  const days = {};
+  let visits = 0;
+  for (let ago = 27; ago >= 0; ago--) {
+    const step = 27 - ago;
+    const count = 16 + Math.round(step * 0.9) + (step % 7 > 4 ? 9 : 0);
+    days[dayKey(new Date(now - ago * DAY))] = count;
+    visits += count;
+  }
+
+  // عدد العناصر لكل أسبوع، من هذا الأسبوع إلى قبل ثلاثة أسابيع: نمو هادئ.
+  const weekly = { subs: [5, 4, 3, 3], orders: [6, 5, 4, 3], leads: [7, 6, 5, 4] };
+  const reasons = ['حصة تجريبية', 'اشتراك جديد', 'استفسار'];
+  const leads = [];
+  const subs = [];
+  const orders = [];
+
+  for (let week = 3; week >= 0; week--) {
+    for (let i = weekly.leads[week] - 1; i >= 0; i--) {
+      const date = moment(week, i, weekly.leads[week]);
+      leads.unshift({
+        id: newId(),
+        at: date.toISOString(),
+        done: week > 0 || i > 2,
+        name: `عميل تجريبي ${leads.length + 1}`,
+        phone: '0500000000',
+        reason: reasons[(week + i) % 3],
+        note: '',
+      });
+    }
+    for (let i = weekly.subs[week] - 1; plans.length && i >= 0; i--) {
+      const date = moment(week, i, weekly.subs[week]);
+      const plan = plans[(week + i) % plans.length];
+      subs.unshift({
+        id: newId(),
+        no: 2001 + subs.length,
+        at: date.toISOString(),
+        status: week === 0 && i === 0 ? 'new' : 'active',
+        planId: plan.id,
+        plan: plan.title,
+        price: Number(plan.price) || 0,
+        months: plan.paid + plan.gift,
+        start: dayKey(date),
+        name: `عميل تجريبي ${subs.length + 1}`,
+        phone: '0500000000',
+        code: '',
+        codeOk: false,
+        pay: i % 2 ? 'online' : 'club',
+      });
+    }
+    for (let i = weekly.orders[week] - 1; products.length && i >= 0; i--) {
+      const date = moment(week, i, weekly.orders[week]);
+      const product = products[(week * 2 + i) % products.length];
+      const qty = 1 + (i % 2);
+      const delivery = i % 3 === 0;
+      const fee = delivery ? Number(site.shop.deliveryFee) || 0 : 0;
+      const subtotal = (Number(product.price) || 0) * qty;
+      orders.unshift({
+        id: newId(),
+        no: 1001 + orders.length,
+        at: date.toISOString(),
+        status: week > 0 ? 'done' : i === 0 ? 'new' : i === 1 ? 'ready' : 'done',
+        items: [{ name: product.name, size: product.sizes?.[1] || '', qty, price: Number(product.price) || 0 }],
+        subtotal,
+        fee,
+        total: subtotal + fee,
+        method: delivery ? 'delivery' : 'pickup',
+        address: delivery ? 'عنوان تجريبي' : '',
+        name: `عميل تجريبي ${orders.length + 1}`,
+        phone: '0500000000',
+      });
+    }
+  }
+
+  const clicks = {};
+  plans.forEach((plan, i) => {
+    clicks[plan.id] = [14, 41, 27][i % 3];
+  });
+  setLog({ ...emptyLog, leads, subs, orders, days, visits, clicks, demo: true });
 }
 
 /* ---------- طلبات الاشتراك ---------- */
